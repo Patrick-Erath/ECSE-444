@@ -8,19 +8,19 @@ DMA_HandleTypeDef hdma_usart1_tx;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_ADC_Init(void);
+static void MX_ADC_Init(void);  //init ADC
+static void MX_DMA_Init(void);  //init DMA
 
 
 // Implicit Functions Declared
 int UART_Print_String(UART_HandleTypeDef *huart, char *cArrayData, int size);
+int DMA_Print_String(UART_HandleTypeDef *huart, uint8_t *cArrayData, int size);
 int flag = 0;
 
 int main(void)
 {
 	
-	//char ch[5] = {'j','o','b','s','\n'};
 	char ch[6] = {'h','e','l','l','o','\n'};
-	char y[1] = {'Y'};
 	char buffer[1];
 	
 	char temperature[19] = {'T','e','m','p','e','r','a','t','u','r','e',' ','=',' ','0','0',' ', 'C','\n'};
@@ -37,66 +37,34 @@ int main(void)
   MX_GPIO_Init();
   MX_USART1_UART_Init();
   MX_ADC_Init();
+	MX_DMA_Init();
 
   /* Infinite loop */
   while (1)
   {
-		
-		/*
-		HAL_Delay(100); // delay 100 ms
-	  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)'X', 1);
-		if (buffer[0] == 'X') {
-					UART_Print_String(&huart1,y, 1);
-		}
-		*/
-		
 		if(flag == 1) {
-			flag = 0; // Reset Flag
-			HAL_ADC_Start(&hadc1); // Start HAL
-			HAL_ADC_PollForConversion(&hadc1, 5000);
+			HAL_ADC_Start(&hadc1);
+			flag = 0;
+			HAL_ADC_PollForConversion(&hadc1, 10000);
 			uint32_t value = HAL_ADC_GetValue(&hadc1);
-			value = __HAL_ADC_CALC_TEMPERATURE(3360, value, ADC_RESOLUTION_12B); // 3360 is the reference voltage (mV)
+			value = __HAL_ADC_CALC_TEMPERATURE(3360, value, ADC_RESOLUTION_10B); // 3360 is the reference voltage (mV)
+				
+			if(readCounter < 30){
+						reading[readCounter] = value/10 + '0'; // just sum of ascii code to obtain correct ascii
+						reading[readCounter + 1] = value%10 + '0';
+						reading[readCounter + 2] = '\n';
+						readCounter = readCounter + 3;
+			}
+			else{
+				readCounter = 0;
+				DMA_Print_String(&huart1, (uint8_t *)reading, 30);
+				//HAL_UART_Transmit_DMA(&huart1, (uint8_t *)reading, 30);
+			}
 			
-			temperature[14] =  value/10 + '0'; 
-			temperature[15] = value%10 + '0';
-			UART_Print_String(&huart1,temperature, 19);
-		}
-	
-		
-		
-		/* PRINT NO FLAG
-		flag = 0; // set to 0
-		HAL_Delay(100);
-		HAL_ADC_Start(&hadc1);
-		HAL_ADC_PollForConversion(&hadc1, 5000);
-		
-		value = HAL_ADC_GetValue(&hadc1);  // Get temperature value
-		value = __HAL_ADC_CALC_TEMPERATURE(3360, value, ADC_RESOLUTION_12B); // 3360 is the reference voltage (mV)
-		
-		temperature[14] =  value/10 + '0'; 
-		temperature[15] = value%10 + '0';
-		UART_Print_String(&huart1, temperature, 19);
-		*/
-		
-		
-		
-		/*
-		// Accumulate Temperature Values
-		if(readCounter < 30){
-						// ASCII code to convert temperature to Celcius
-						reading[readCounter] = value/10 + '0'; 
-						reading[++readCounter] = value%10 + '0';
-						reading[++readCounter] = '\n';
-						readCounter++;
-		}
-		// Print Values Obtained
-		else{
-			//HAL_UART_Transmit_DMA(&huart1, (uint8_t *)reading, 30);
-			readCounter = 0; // Reset Arraypointer
 			//UART_Print_String(&huart1,temperature, 19);
-			UART_Print_String(&huart1, (uint8_t *)reading, 30);
 		}
-		*/
+		
+		
 	
 		
   }
@@ -107,14 +75,14 @@ static void MX_ADC_Init(void) {
 	
 	hadc1.Instance = ADC1;
 	// Synchronous clock from AHB clock prescaler division by 1
-	hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV1;
-	// Set resolution to 12 bits
-	hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+	hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV1; // Setup Clock
+	hadc1.Init.Resolution = ADC_RESOLUTION_10B; // Set resolution to 12 bits
 	hadc1.Init.ScanConvMode = DISABLE; 	// Conversion done in single mode, scan one input
-//	hadc1.Init.ContinuousConvMode = ENABLE; // Convert continously
+  //	hadc1.Init.ContinuousConvMode = ENABLE; // Convert continously
 	hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
 	hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV; //End of unitary conversion flag 
 	
+	// Check if perifs were correctly initalized 
 	if(HAL_ADC_Init(&hadc1) != HAL_OK){
 		Error_Handler();
 	}
@@ -132,11 +100,27 @@ static void MX_ADC_Init(void) {
 	}
 }
 
+
+
+
+
+int DMA_Print_String(UART_HandleTypeDef *huart, uint8_t *cArrayData, int size) {
+	// 1 SUCCESS,  0 FAILURE
+	HAL_StatusTypeDef status = HAL_UART_Transmit_DMA(huart, cArrayData, size);
+	if(status == HAL_OK){
+		return 1;
+	}
+	else{
+		return 0;
+	}
+}
+
+
 int UART_Print_String(UART_HandleTypeDef *huart, char *cArrayData, int size) {
 	// 1 SUCCESS,  0 FAILURE
 	return !HAL_UART_Transmit(huart, (uint8_t *)cArrayData, size, 30000);
-
 }
+
 
 void SystemClock_Config(void)
 {
@@ -211,6 +195,38 @@ void SystemClock_Config(void)
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
 
+
+/* DMA init function */
+static void MX_DMA_Init(void){
+	// Enable the DMA Clock
+	__HAL_RCC_DMA1_CLK_ENABLE();
+	
+	// Configure Init
+	hdma_usart1_tx.Init.Request = DMA_REQUEST_2; // Request Number Selected
+	hdma_usart1_tx.Init.Direction = DMA_MEMORY_TO_PERIPH; // Want DMA to get data from memory to periph (uart)
+	hdma_usart1_tx.Init.PeriphInc = DMA_PINC_DISABLE; // Peripheral address register does not increment.
+	hdma_usart1_tx.Init.MemInc = DMA_MINC_ENABLE; // Memory address register should be incremented (reading array)
+	hdma_usart1_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE; // USART has data width in byte
+  hdma_usart1_tx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE; // Char data is byte size
+	hdma_usart1_tx.Init.Mode = DMA_NORMAL;	// Want to use DMA for 10 readings then wait
+	hdma_usart1_tx.Init.Priority = DMA_PRIORITY_HIGH;
+	
+	// Configure channel
+	hdma_usart1_tx.Instance = DMA1_Channel4; // Channel chosen in STMCube
+	
+	if (HAL_DMA_Init(&hdma_usart1_tx) != HAL_OK){
+		_Error_Handler(__FILE__, __LINE__);
+	}
+	
+	// Link the interrupt handlers of USART and HAL
+	__HAL_LINKDMA(&huart1,hdmatx,hdma_usart1_tx);
+	
+	/* DMA interrupt init */
+  /* DMA1_Channel4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+}
+
 /* USART1 init function */
 static void MX_USART1_UART_Init(void)
 {
@@ -228,6 +244,9 @@ static void MX_USART1_UART_Init(void)
   {
     _Error_Handler(__FILE__, __LINE__);
   }
+	// ADDED
+	HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(USART1_IRQn);
 
 }
 
@@ -235,6 +254,7 @@ static void MX_GPIO_Init(void)
 {
   __HAL_RCC_GPIOB_CLK_ENABLE();
 }
+
 
 
 void _Error_Handler(char *file, int line)
